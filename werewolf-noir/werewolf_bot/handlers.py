@@ -23,6 +23,31 @@ async def start_handler(message: Message, bot: Bot):
     else:
         pass # Игнорировать групповые команды в лс, значит не реагировать на старт в группе (или реагировать тихо). Автор просил не реагировать в лс на групповые, а /start - это лс команда, в группе не реагируем ни на что кроме префиксов.
 
+@router.message(Command("help"))
+async def help_handler(message: Message):
+    help_text = (
+        "📜 **Команды бота**:\n\n"
+        "/lobby - Создать лобби для начала игры в группе\n"
+        "/profile - Посмотреть свой профиль и статистику\n"
+        "/help - Показать это сообщение\n\n"
+        "Для игры добавьте меня в группу и дайте права администратора для удаления сообщений (чтобы убитые/зрители не мешали)."
+    )
+    await message.answer(help_text)
+
+@router.message(Command("profile"))
+async def profile_command_handler(message: Message):
+    if message.chat.type != "private":
+        return await message.answer("Пожалуйста, напиши мне в ЛС для просмотра профиля.")
+        
+    user = get_user(message.from_user.id, message.from_user.full_name)
+    text = (f"📊 Профиль: {user['username']}\n"
+            f"🏆 Побед: {user['wins']}\n"
+            f"💀 Поражений: {user['losses']}\n"
+            f"💰 Монет: {user['coins']}\n"
+            f"🎭 Любимая роль: {user['favorite_role']}\n"
+            f"📈 Рейтинг: {user['rating']}\n")
+    await message.answer(text, reply_markup=get_profile_kb())
+
 async def _timeout_lobby(chat_id: int, bot: Bot):
     await asyncio.sleep(60)
     if chat_id in ACTIVE_GAMES and ACTIVE_GAMES[chat_id].state == "LOBBY":
@@ -32,7 +57,7 @@ async def _timeout_lobby(chat_id: int, bot: Bot):
         except:
              pass
 
-@router.message(Command("create_lobby"))
+@router.message(Command("lobby"))
 async def create_lobby_handler(message: Message, bot: Bot):
     if message.chat.type == "private":
          return # Игнорировать групповые команды в лс
