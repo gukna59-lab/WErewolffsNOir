@@ -2,7 +2,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, ChatMemberUpdated
 from aiogram.filters import Command
 from database import get_user, update_user_coins, set_next_role
-from keyboards import get_start_kb, get_lobby_kb, get_profile_kb, get_shop_kb
+from keyboards import get_start_kb, get_lobby_kb, get_profile_kb, get_shop_kb, get_player_selection_kb
 from game_engine import ACTIVE_GAMES, GameSession, GamePlayer
 import random
 import asyncio
@@ -69,7 +69,7 @@ async def create_lobby_handler(message: Message, bot: Bot):
     game.players[player.user_id] = player
     ACTIVE_GAMES[chat_id] = game
     
-    text = f"🐺 ЛОББИ СОЗДАНО (1/12)\n\nСоздатель: {message.from_user.full_name}\n\nУчастники:\n1. {message.from_user.full_name}"
+    text = f"🐺 ЛОББИ СОЗДАНО (1/12)\n\nУчастники:\n1. {message.from_user.full_name}"
     await message.answer(text, reply_markup=get_lobby_kb())
     
     asyncio.create_task(_timeout_lobby(chat_id, bot))
@@ -99,7 +99,7 @@ async def join_lobby(callback: CallbackQuery):
     players_text = "\n".join([f"{i+1}. {p.username}" for i, p in enumerate(game.players.values())])
     
     await callback.message.edit_text(
-        f"🐾 ЛОББИ ({len(game.players)}/12)\n\nСоздатель: {game.players[game.creator_id].username}\n\nУчастники:\n{players_text}",
+        f"🐾 ЛОББИ ({len(game.players)}/12)\n\nУчастники:\n{players_text}",
         reply_markup=get_lobby_kb()
     )
     # Creator start button should be handled. Simplified here.
@@ -132,7 +132,7 @@ async def leave_lobby(callback: CallbackQuery):
     players_text = "\n".join([f"{i+1}. {p.username}" for i, p in enumerate(game.players.values())])
     
     await callback.message.edit_text(
-        f"🐾 ЛОББИ ({len(game.players)}/12)\n\nСоздатель: {game.players[game.creator_id].username}\n\nУчастники:\n{players_text}",
+        f"🐾 ЛОББИ ({len(game.players)}/12)\n\nУчастники:\n{players_text}",
         reply_markup=get_lobby_kb()
     )
     await callback.answer("Ты вышел из лобби.")
@@ -273,6 +273,74 @@ async def seer_look(callback: CallbackQuery):
         name = game.players[target_id].username
         await callback.message.edit_text(f"🔮 Ясновидение: {name} имеет роль [{role}]")
     await callback.answer()
+
+@router.callback_query(F.data.startswith("cupid_vote:"))
+async def cupid_vote(callback: CallbackQuery):
+    game = get_game_for_user(callback.from_user.id)
+    if game and game.state == "NIGHT" and game.day_count == 1:
+        target_id = int(callback.data.split(":")[1])
+        if callback.from_user.id not in game.night_actions:
+            game.night_actions[callback.from_user.id] = []
+        if target_id not in game.night_actions[callback.from_user.id]:
+            game.night_actions[callback.from_user.id].append(target_id)
+            
+        if len(game.night_actions[callback.from_user.id]) == 1:
+            await callback.answer("Первый влюбленный выбран. Выбери второго.")
+        elif len(game.night_actions[callback.from_user.id]) == 2:
+            lover1_id = game.night_actions[callback.from_user.id][0]
+            lover2_id = game.night_actions[callback.from_user.id][1]
+            game.lovers.extend([lover1_id, lover2_id])
+            await callback.message.edit_text("💘 Вы выбрали двоих влюбленных!")
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("witch_action:"))
+async def witch_action(callback: CallbackQuery):
+    game = get_game_for_user(callback.from_user.id)
+    if not game or game.state != "NIGHT": return
+    
+    action = callback.data.split(":")[1]
+    alive = game.get_alive_players()
+    if action == "heal":
+        from keyboards import get_player_selection_kb
+        kb = get_player_selection_kb(alive, "witch_heal_target")
+        await callback.message.edit_text("🧪 Кого исцелить? (Если он не цель оборотней, зелье сгорит)", reply_markup=kb)
+    elif action == "poison":
+        from keyboards import get_player_selection_kb
+        kb = get_player_selection_kb(alive, "witch_poison_target", callback.from_user.id)
+        await callback.message.edit_text("☠️ Кого отравить?", reply_markup=kb)
+    else:
+        game.night_actions[callback.from_user.id] = "skipped"
+        await callback.message.edit_text("💤 Вы решили пропустить эту ночь.")
+
+@router.callback_query(F.data.startswith("witch_heal_target:"))
+async def witch_heal_target(callback: CallbackQuery):
+    game = get_game_for_user(callback.from_user.id)
+    if game and game.state == "NIGHT":
+        target = int(callback.data.split(":")[1])
+        game.night_actions[callback.from_user.id] = f"heal:{target}"
+        game.witch_heal_used = True
+        await callback.message.edit_text("🧪 Зелье готово.")
+
+@router.callback_query(F.data.startswith("witch_poison_target:"))
+async def witch_poison_target(callback: CallbackQuery):
+    game = get_game_for_user(callback.from_user.id)
+    if game and game.state == "NIGHT":
+        target = int(callback.data.split(":")[1])
+        game.night_actions[callback.from_user.id] = f"poison:{target}"
+        game.witch_poison_used = True
+        await callback.message.edit_text("☠️ Зелье яда будет применено.")
+
+@router.callback_query(F.data.startswith("girl_"))
+async def girl_action(callback: CallbackQuery):
+    game = get_game_for_user(callback.from_user.id)
+    if game and game.state == "NIGHT":
+        if callback.data == "girl_look":
+            game.night_actions[callback.from_user.id] = "look"
+            await callback.message.edit_text("👀 Вы решили подсмотреть. Осторожно!")
+        else:
+            game.night_actions[callback.from_user.id] = "sleep"
+            await callback.message.edit_text("😴 Вы спокойно спите.")
+
 
 @router.callback_query(F.data.startswith("day_vote:"))
 async def day_vote(callback: CallbackQuery):

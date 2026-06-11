@@ -38,12 +38,13 @@ def get_player_selection_kb(players: list, callback_prefix: str, exclude_id: int
     builder.adjust(2)
     return builder.as_markup()
 
-def get_witch_kb() -> InlineKeyboardMarkup:
+def get_witch_action_kb(can_heal: bool, can_poison: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    builder.button(text="🧪 Зелье исцеления", callback_data="witch_heal")
-    builder.button(text="☠️ Зелье яда", callback_data="witch_poison")
-    builder.button(text="Пропустить", callback_data="witch_skip")
-    builder.adjust(1)
+    if can_heal:
+        builder.row(InlineKeyboardButton(text="🧪 Слепое исцеление", callback_data="witch_action:heal"))
+    if can_poison:
+        builder.row(InlineKeyboardButton(text="☠️ Отравить", callback_data="witch_action:poison"))
+    builder.row(InlineKeyboardButton(text="💤 Пропустить", callback_data="witch_action:skip"))
     return builder.as_markup()
 
 def get_little_girl_kb() -> InlineKeyboardMarkup:

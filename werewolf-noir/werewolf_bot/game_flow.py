@@ -2,7 +2,7 @@ import asyncio
 import random
 from aiogram import Bot
 from game_engine import ACTIVE_GAMES, GameSession
-from keyboards import get_player_selection_kb, get_witch_kb, get_passive_night_kb, get_start_kb
+from keyboards import get_player_selection_kb, get_passive_night_kb, get_start_kb, get_witch_action_kb, get_little_girl_kb
 from database import update_user_coins, get_user, update_user_stats
 
 GIFS = {
@@ -78,6 +78,14 @@ async def run_night_phase(bot: Bot, chat_id: int):
             elif p.role_name == "Предсказатель":
                 kb = get_player_selection_kb(alive, "seer_look", p.user_id)
                 await bot.send_message(p.user_id, "🔮 Кого проверить?", reply_markup=kb)
+            elif p.role_name == "Купидон" and game.day_count == 1:
+                kb = get_player_selection_kb(alive, "cupid_vote")
+                await bot.send_message(p.user_id, "💘 Выбери двух влюбленных (нажми на двоих):", reply_markup=kb)
+            elif p.role_name == "Ведьма":
+                kb = get_witch_action_kb(not game.witch_heal_used, not game.witch_poison_used)
+                await bot.send_message(p.user_id, "🧙‍♀️ Зелья:", reply_markup=kb)
+            elif p.role_name == "Маленькая девочка":
+                await bot.send_message(p.user_id, "👧 Хочешь подсмотреть за Оборотнями?", reply_markup=get_little_girl_kb())
             else:
                 await bot.send_message(p.user_id, "💤 Фаза сна. Нажмите чтобы уснуть.", reply_markup=get_passive_night_kb())
         except Exception as e:
@@ -89,16 +97,43 @@ async def run_night_phase(bot: Bot, chat_id: int):
             break
         await asyncio.sleep(0.5)
         
+    # Parse night actions
+    heals = []
+    poison = []
+    girl_peeped = False
+    girl_id = None
+    for k, v in game.night_actions.items():
+        if isinstance(v, str) and v.startswith("heal:"):
+             heals.append(int(v.split(":")[1]))
+        elif isinstance(v, str) and v.startswith("poison:"):
+             poison.append(int(v.split(":")[1]))
+        elif v == "look":
+             girl_peeped = True
+             girl_id = k
+
     # Eval WW vote
     ww_votes = [v for k, v in game.night_actions.items() if game.players[k].role_name == "Оборотень" and isinstance(v, int)]
+    target_killed = []
+    
     if ww_votes:
         from collections import Counter
         counts = Counter(ww_votes)
         max_votes = max(counts.values())
         candidates = [k for k, v in counts.items() if v == max_votes]
         victim_id = random.choice(candidates)
-        victim = game.players[victim_id]
-        
+        if victim_id not in heals:
+            target_killed.append(victim_id)
+            
+    if girl_peeped and girl_id:
+        if random.random() < 0.30:
+            target_killed.append(girl_id)
+            
+    if poison:
+        target_killed.extend(poison)
+
+    for victim_id in target_killed:
+        victim = game.players.get(victim_id)
+        if not victim: continue
         if victim.role_name == "Инфицированный" and not victim.is_infected:
             victim.role_name = "Оборотень"
             victim.is_infected = True
@@ -106,6 +141,29 @@ async def run_night_phase(bot: Bot, chat_id: int):
             victim.is_alive = False
             game.night_killed.append(victim_id)
             
+    # Process lovers
+    additional_killed = []
+    for vid in game.night_killed:
+        if vid in game.lovers:
+            other_lover = [l for l in game.lovers if l != vid][0]
+            if other_lover not in game.night_killed and other_lover not in additional_killed:
+                victim = game.players.get(other_lover)
+                if victim:
+                    victim.is_alive = False
+                    additional_killed.append(other_lover)
+    game.night_killed.extend(additional_killed)
+
+    # Process hunter night death
+    for vid in game.night_killed:
+        if game.players[vid].role_name == "Охотник":
+             alive_now = game.get_alive_players()
+             if alive_now:
+                 target_id = random.choice(alive_now).user_id
+                 victim = game.players.get(target_id)
+                 if victim:
+                     victim.is_alive = False
+                     game.night_killed.append(target_id)
+                     
     game.night_actions.clear()
     asyncio.create_task(run_morning_phase(bot, chat_id))
     
@@ -158,7 +216,9 @@ async def run_voting_phase(bot: Bot, chat_id: int):
         
     if game.day_votes:
         from collections import Counter
-        counts = Counter(game.day_votes.values())
+        counts = Counter()
+        for voter_id, target_id in game.day_votes.items():
+            counts[target_id] += 1
         max_votes = max(counts.values())
         candidates = [k for k, v in counts.items() if v == max_votes]
         
@@ -166,6 +226,24 @@ async def run_voting_phase(bot: Bot, chat_id: int):
             victim = game.players[candidates[0]]
             victim.is_alive = False
             await broadcast(bot, game, f"💀 Казнён {victim.username} (Роль: {victim.role_name}).", animation=GIFS["EXECUTION"])
+            
+            # Hunter check
+            if victim.role_name == "Охотник":
+                alive_now = game.get_alive_players()
+                if alive_now:
+                    target_id = random.choice(alive_now).user_id
+                    victim_hunter = game.players[target_id]
+                    victim_hunter.is_alive = False
+                    await broadcast(bot, game, f"🔫 Умирая, Охотник ({victim.username}) выстрелил наугад и убил {victim_hunter.username} (Роль: {victim_hunter.role_name})!")
+            
+            # Lovers check
+            if victim.user_id in game.lovers:
+                other_lover = [l for l in game.lovers if l != victim.user_id][0]
+                victim_lover = game.players[other_lover]
+                if victim_lover.is_alive:
+                     victim_lover.is_alive = False
+                     await broadcast(bot, game, f"💔 Не выдержав горя, {victim_lover.username} лишает себя жизни (Роль: {victim_lover.role_name})!")
+            
             if victim.role_name == "Таннер":
                 await broadcast(bot, game, "🏆 ПОБЕДА ТАННЕРА! 🏆\nТаннер добился своей казни!")
                 return await end_game(bot, game, "TANNER_WIN")

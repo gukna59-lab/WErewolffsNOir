@@ -27,6 +27,7 @@ class GameSession:
         self.witch_poison_used = False
         self.night_killed = []
         self.night_healed = []
+        self.lovers = []
 
     def get_alive_players(self):
         return [p for p in self.players.values() if p.is_alive]
