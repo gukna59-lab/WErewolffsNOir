@@ -11,7 +11,8 @@ GIFS = {
     "EXECUTION": "https://media.tenor.com/xO8qCmsdY2MAAAAC/gallows-hang.gif",
     "WEREWOLVES_WIN": "https://media.tenor.com/bVq80Kq4GkwAAAAC/werewolf-scary.gif",
     "VILLAGERS_WIN": "https://media.tenor.com/R38GWe9wUQQAAAAC/cheer-yay.gif",
-    "DRAW": "https://media.tenor.com/xI_A2RcbXJwAAAAC/cemetery-graveyard.gif"
+    "DRAW": "https://media.tenor.com/xI_A2RcbXJwAAAAC/cemetery-graveyard.gif",
+    "VOTE": "https://media.tenor.com/yQ9f15S3KxgAAAAC/vote-time.gif"
 }
 
 async def broadcast(bot: Bot, game: GameSession, text: str, reply_markup=None, animation: str = None):
@@ -137,7 +138,7 @@ async def run_voting_phase(bot: Bot, chat_id: int):
     game.day_vote_msg_ids = {} 
     
     alive = game.get_alive_players()
-    await broadcast(bot, game, "🗳 Голосование началось! Окно голосования появится в ЛС.")
+    await broadcast(bot, game, "🗳 Голосование началось! Окно голосования появится в ЛС.", animation=GIFS["VOTE"])
     
     votes_text = ""
     for p in alive:

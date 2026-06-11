@@ -36,9 +36,6 @@ async def help_handler(message: Message):
 
 @router.message(Command("profile"))
 async def profile_command_handler(message: Message):
-    if message.chat.type != "private":
-        return await message.answer("Пожалуйста, напиши мне в ЛС для просмотра профиля.")
-        
     user = get_user(message.from_user.id, message.from_user.full_name)
     text = (f"📊 Профиль: {user['username']}\n"
             f"🏆 Побед: {user['wins']}\n"

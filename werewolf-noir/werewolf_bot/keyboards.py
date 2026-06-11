@@ -13,7 +13,7 @@ def get_lobby_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="Присоединиться ✅", callback_data="join_lobby"))
     builder.row(InlineKeyboardButton(text="Выйти ❌", callback_data="leave_lobby"))
-    builder.row(InlineKeyboardButton(text="▶ Старт (Создатель)", callback_data="start_game"))
+    builder.row(InlineKeyboardButton(text="▶ Старт", callback_data="start_game"))
     return builder.as_markup()
 
 def get_profile_kb() -> InlineKeyboardMarkup:
