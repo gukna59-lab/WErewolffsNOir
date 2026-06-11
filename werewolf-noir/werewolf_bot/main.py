@@ -7,12 +7,24 @@ from database import init_db
 from handlers import router
 import os
 from dotenv import load_dotenv
+from aiohttp import web
 
 load_dotenv()
 
-# To run this bot locally, replace 'YOUR_BOT_TOKEN_HERE' with your real bot token
-# or set the BOT_TOKEN environment variable. 
 API_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+
+async def health_check(request):
+    return web.Response(text="Bot is ok!")
+
+async def start_dummy_server():
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"Dummy web server started on port {port}")
 
 async def main():
     logging.basicConfig(level=logging.INFO)
@@ -22,6 +34,8 @@ async def main():
     dp = Dispatcher()
     
     dp.include_router(router)
+    
+    await start_dummy_server()
     
     print("Бот успешно запущен!")
     await bot.delete_webhook(drop_pending_updates=True)
