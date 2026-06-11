@@ -37,7 +37,7 @@ async def main():
     
     await start_dummy_server()
     
-    print("Бот успешно запущен!")
+    print("Бот успешно запущен! 🐺")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
@@ -45,4 +45,4 @@ if __name__ == '__main__':
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Бот остановлен.")
+        print("Бот остановлен. 🐺")

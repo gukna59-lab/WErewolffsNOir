@@ -16,15 +16,24 @@ async def start_handler(message: Message, bot: Bot):
         get_user(message.from_user.id, message.from_user.full_name) # Ensure user in DB
         bot_info = await bot.get_me()
         await message.answer(
-            "Привет! Я бот для игры в 'Оборотней' (Мафию) 👋.\n\n"
+            "Привет! Я бот для игры в 'Оборотней' 🐺.\n\n"
             "Добавь меня в свою группу с помощью кнопки ниже, чтобы начать игру!",
             reply_markup=get_start_kb(bot_info.username)
         )
     else:
         pass # Игнорировать групповые команды в лс, значит не реагировать на старт в группе (или реагировать тихо). Автор просил не реагировать в лс на групповые, а /start - это лс команда, в группе не реагируем ни на что кроме префиксов.
 
+async def _timeout_lobby(chat_id: int, bot: Bot):
+    await asyncio.sleep(60)
+    if chat_id in ACTIVE_GAMES and ACTIVE_GAMES[chat_id].state == "LOBBY":
+        del ACTIVE_GAMES[chat_id]
+        try:
+             await bot.send_message(chat_id, "Лобби было удалено по тайм-ауту (60 секунд бездействия).")
+        except:
+             pass
+
 @router.message(Command("create_lobby"))
-async def create_lobby_handler(message: Message):
+async def create_lobby_handler(message: Message, bot: Bot):
     if message.chat.type == "private":
          return # Игнорировать групповые команды в лс
     
@@ -39,7 +48,9 @@ async def create_lobby_handler(message: Message):
     ACTIVE_GAMES[chat_id] = game
     
     text = f"🐺 ЛОББИ СОЗДАНО (1/12)\n\nСоздатель: {message.from_user.full_name}\n\nУчастники:\n1. {message.from_user.full_name}"
-    await message.answer(text, reply_markup=get_lobby_kb(is_creator=False)) # Only creator sees start but we show it on update
+    await message.answer(text, reply_markup=get_lobby_kb())
+    
+    asyncio.create_task(_timeout_lobby(chat_id, bot))
 
 @router.callback_query(F.data == "join_lobby")
 async def join_lobby(callback: CallbackQuery):
@@ -65,15 +76,45 @@ async def join_lobby(callback: CallbackQuery):
     
     players_text = "\n".join([f"{i+1}. {p.username}" for i, p in enumerate(game.players.values())])
     
-    is_creator = callback.from_user.id == game.creator_id
-    kb = get_lobby_kb(is_creator=True) # Usually creator will be the one controlling via their message view
-    
     await callback.message.edit_text(
-        f"🐺 ЛОББИ ({len(game.players)}/12)\n\nСоздатель: {game.players[game.creator_id].username}\n\nУчастники:\n{players_text}",
-        reply_markup=get_lobby_kb(is_creator=False) # Wait, need to update inline kb dynamically. 
+        f"🐾 ЛОББИ ({len(game.players)}/12)\n\nСоздатель: {game.players[game.creator_id].username}\n\nУчастники:\n{players_text}",
+        reply_markup=get_lobby_kb()
     )
     # Creator start button should be handled. Simplified here.
     
+@router.callback_query(F.data == "leave_lobby")
+async def leave_lobby(callback: CallbackQuery):
+    chat_id = callback.message.chat.id
+    if chat_id not in ACTIVE_GAMES:
+        return await callback.answer("Лобби не существует.", show_alert=True)
+    
+    game = ACTIVE_GAMES[chat_id]
+    user_id = callback.from_user.id
+    if user_id not in game.players:
+        return await callback.answer("Ты не в лобби!", show_alert=True)
+        
+    if game.state != "LOBBY":
+        return await callback.answer("Игра уже началась!", show_alert=True)
+        
+    del game.players[user_id]
+    
+    if len(game.players) == 0:
+        del ACTIVE_GAMES[chat_id]
+        await callback.message.edit_text("Лобби было удалено, так как все участники вышли.")
+        return await callback.answer("Ты вышел из лобби.")
+    
+    # If the creator leaves, assign someone else as creator
+    if user_id == game.creator_id:
+        game.creator_id = list(game.players.keys())[0]
+
+    players_text = "\n".join([f"{i+1}. {p.username}" for i, p in enumerate(game.players.values())])
+    
+    await callback.message.edit_text(
+        f"🐾 ЛОББИ ({len(game.players)}/12)\n\nСоздатель: {game.players[game.creator_id].username}\n\nУчастники:\n{players_text}",
+        reply_markup=get_lobby_kb()
+    )
+    await callback.answer("Ты вышел из лобби.")
+
 @router.callback_query(F.data == "my_profile")
 async def my_profile(callback: CallbackQuery):
     user = get_user(callback.from_user.id, callback.from_user.full_name)
@@ -135,7 +176,7 @@ async def buy_ticket(callback: CallbackQuery):
 async def back_to_menu(callback: CallbackQuery, bot: Bot):
     bot_info = await bot.get_me()
     await callback.message.edit_text(
-        "Привет! Я бот для игры в 'Оборотней' (Мафию) 👋.\n\n"
+        "Привет! Я бот для игры в 'Оборотней' 🐺.\n\n"
         "Добавь меня в свою группу с помощью кнопки ниже, чтобы начать игру!",
         reply_markup=get_start_kb(bot_info.username)
     )
@@ -149,7 +190,7 @@ async def manage_bot_membership(event: ChatMemberUpdated):
     if old_status in ("left", "kicked") and new_status in ("member", "administrator"):
         await event.bot.send_message(
             event.chat.id,
-            "Всем привет! Я бот для игры в 'Оборотней' (Мафию) 🐺.\n\n"
+            "Всем привет! Я бот для игры в 'Оборотней' 🐺.\n\n"
             "Чтобы игра проходила комфортно, во время сессии я буду удалять сообщения пользователей, которые не участвуют в игре или уже убиты, чтобы они не мешали.\n"
             "Для этого, пожалуйста, **назначьте меня администратором** (обязательно дайте право на удаление сообщений)!"
         )
