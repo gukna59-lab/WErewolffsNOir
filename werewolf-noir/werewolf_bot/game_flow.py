@@ -6,13 +6,13 @@ from keyboards import get_player_selection_kb, get_passive_night_kb, get_start_k
 from database import update_user_coins, get_user, update_user_stats
 
 GIFS = {
-    "NIGHT": "https://media.tenor.com/2s_tN-G_E-AAAAAC/wolf-howl.gif",
-    "DAY": "https://media.tenor.com/yvINZ_F0wLEAAAAC/sunrise-sun.gif",
-    "EXECUTION": "https://media.tenor.com/xO8qCmsdY2MAAAAC/gallows-hang.gif",
-    "WEREWOLVES_WIN": "https://media.tenor.com/bVq80Kq4GkwAAAAC/werewolf-scary.gif",
-    "VILLAGERS_WIN": "https://media.tenor.com/R38GWe9wUQQAAAAC/cheer-yay.gif",
-    "DRAW": "https://media.tenor.com/xI_A2RcbXJwAAAAC/cemetery-graveyard.gif",
-    "VOTE": "https://media.tenor.com/yQ9f15S3KxgAAAAC/vote-time.gif"
+    "NIGHT": "https://i.pinimg.com/originals/79/72/f1/7972f147519d7d5cf6b32204662c13d2.gif",
+    "DAY": "https://i.pinimg.com/originals/93/0f/22/930f22d2e9a376232cc5d42bc5b4cc90.gif",
+    "EXECUTION": "https://i.pinimg.com/originals/fe/7a/ef/fe7aef331608c8ea3a9e9131e24eabc7.gif",
+    "WEREWOLVES_WIN": "https://i.pinimg.com/originals/79/72/f1/7972f147519d7d5cf6b32204662c13d2.gif",
+    "VILLAGERS_WIN": "https://i.pinimg.com/originals/93/0f/22/930f22d2e9a376232cc5d42bc5b4cc90.gif",
+    "DRAW": "https://i.pinimg.com/originals/fe/7a/ef/fe7aef331608c8ea3a9e9131e24eabc7.gif",
+    "VOTE": "https://i.pinimg.com/originals/fe/7a/ef/fe7aef331608c8ea3a9e9131e24eabc7.gif"
 }
 
 async def broadcast(bot: Bot, game: GameSession, text: str, reply_markup=None, animation: str = None):
@@ -94,11 +94,30 @@ async def run_night_phase(bot: Bot, chat_id: int):
         except Exception as e:
             pass
             
+    expected_actions = 0
+    for p in alive:
+        if p.role_name == "Оборотень": expected_actions += 1
+        elif p.role_name == "Предсказатель": expected_actions += 1
+        elif p.role_name == "Ведьма": expected_actions += 1
+        elif p.role_name == "Маленькая девочка": expected_actions += 1
+        elif p.role_name == "Купидон" and game.day_count == 1: expected_actions += 1
+
     # Wait up to 30s
     for _ in range(30 * 2):
-        if len(game.night_actions) >= len(alive):
+        active_submitted = 0
+        for p in alive:
+            if p.user_id in game.night_actions:
+                if p.role_name in ["Оборотень", "Предсказатель", "Ведьма", "Маленькая девочка"] or (p.role_name == "Купидон" and game.day_count == 1):
+                    # Check if Cupid needs more clicks
+                    if p.role_name == "Купидон" and game.day_count == 1:
+                         if isinstance(game.night_actions[p.user_id], list) and len(game.night_actions[p.user_id]) < 2:
+                             continue # still waiting for 2nd lover
+                    active_submitted += 1
+        if active_submitted >= expected_actions:
             break
         await asyncio.sleep(0.5)
+        
+    await asyncio.sleep(8)
         
     # Parse night actions
     heals = []
@@ -182,10 +201,12 @@ async def run_morning_phase(bot: Bot, chat_id: int):
     alive_names = [f"• {p.username}" for p in game.get_alive_players()]
     text += f"\n\n👥 В живых ({len(alive_names)}):\n" + "\n".join(alive_names)
     
+    await broadcast(bot, game, text, animation=GIFS["DAY"])
+    game.night_killed = [] 
+    
     if await check_and_handle_victory(bot, game): return
     
-    await broadcast(bot, game, text + "\n\n💬 Обсуждение! У вас есть 30 секунд.", animation=GIFS["DAY"])
-    game.night_killed = [] 
+    await broadcast(bot, game, "💬 Обсуждение! У вас есть 30 секунд.")
     
     await asyncio.sleep(30)
     asyncio.create_task(run_voting_phase(bot, chat_id))
@@ -217,6 +238,8 @@ async def run_voting_phase(bot: Bot, chat_id: int):
         if len(game.day_votes) >= len(alive): break
         await asyncio.sleep(0.5)
         
+    await asyncio.sleep(8)
+    
     try:
         if hasattr(game, "day_vote_group_msg_id"):
             await bot.edit_message_reply_markup(chat_id, game.day_vote_group_msg_id, reply_markup=None)
