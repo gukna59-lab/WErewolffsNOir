@@ -286,11 +286,20 @@ async def cupid_vote(callback: CallbackQuery):
             
         if len(game.night_actions[callback.from_user.id]) == 1:
             await callback.answer("Первый влюбленный выбран. Выбери второго.")
-        elif len(game.night_actions[callback.from_user.id]) == 2:
+        elif len(game.night_actions[callback.from_user.id]) >= 2:
             lover1_id = game.night_actions[callback.from_user.id][0]
             lover2_id = game.night_actions[callback.from_user.id][1]
             game.lovers.extend([lover1_id, lover2_id])
             await callback.message.edit_text("💘 Вы выбрали двоих влюбленных!")
+            
+            # Notify lovers
+            try:
+                name1 = game.players[lover1_id].username
+                name2 = game.players[lover2_id].username
+                await callback.bot.send_message(lover1_id, f"💘 Купидон сделал свой выбор! Вы теперь влюблены в {name2}. Если он/она умрет, вы умрете вместе с ним/ней.")
+                await callback.bot.send_message(lover2_id, f"💘 Купидон сделал свой выбор! Вы теперь влюблены в {name1}. Если он/она умрет, вы умрете вместе с ним/ней.")
+            except Exception:
+                pass
     await callback.answer()
 
 @router.callback_query(F.data.startswith("witch_action:"))
@@ -344,12 +353,25 @@ async def girl_action(callback: CallbackQuery):
 
 @router.callback_query(F.data.startswith("day_vote:"))
 async def day_vote(callback: CallbackQuery):
-    game = get_game_for_user(callback.from_user.id)
+    chat_id = callback.message.chat.id
+    if chat_id not in ACTIVE_GAMES:
+        game = get_game_for_user(callback.from_user.id)
+        if hasattr(game, "chat_id"): chat_id = game.chat_id
+    game = ACTIVE_GAMES.get(chat_id)
+    
     if game and game.state == "VOTING":
+        if callback.from_user.id not in [p.user_id for p in game.get_alive_players()]:
+            return await callback.answer("Мертвые не голосуют!", show_alert=True)
+            
+        if callback.from_user.id in game.day_votes:
+            return await callback.answer("Ты уже проголосовал!", show_alert=True)
+            
         target_id = int(callback.data.split(":")[1])
         game.day_votes[callback.from_user.id] = target_id
         await update_day_votes(callback.bot, game)
-    await callback.answer()
+        await callback.answer("Ваш голос принят!")
+    else:
+        await callback.answer("Голосование закрыто.", show_alert=True)
 
 async def update_ww_votes(bot: Bot, game: GameSession):
     alive_wws = game.get_alive_werewolves()
@@ -375,6 +397,8 @@ async def update_ww_votes(bot: Bot, game: GameSession):
                 pass
 
 async def update_day_votes(bot: Bot, game: GameSession):
+    if not hasattr(game, "day_vote_group_msg_id"): return
+    
     alive = game.get_alive_players()
     votes_text = ""
     for p in alive:
@@ -385,16 +409,13 @@ async def update_day_votes(bot: Bot, game: GameSession):
         else:
             votes_text += f"\n👤 {p.username} ➡ ⏳ думает..."
             
-    base_text = "⚖️ Кого отправим на виселицу?\n" + votes_text
+    base_text = "🗳 Голосование началось! (У каждого 1 голос, Изменить нельзя)\n⚖️ Кого отправим на виселицу?\n" + votes_text
+    kb = get_player_selection_kb(alive, "day_vote")
     
-    for p in alive:
-        msg_id = game.day_vote_msg_ids.get(p.user_id)
-        if msg_id:
-            kb = get_player_selection_kb(alive, "day_vote", p.user_id)
-            try:
-                await bot.edit_message_text(base_text, chat_id=p.user_id, message_id=msg_id, reply_markup=kb)
-            except Exception:
-                pass
+    try:
+        await bot.edit_message_text(base_text, chat_id=game.chat_id, message_id=game.day_vote_group_msg_id, reply_markup=kb)
+    except Exception:
+        pass
 
 @router.message()
 async def game_chat_filter(message: Message):

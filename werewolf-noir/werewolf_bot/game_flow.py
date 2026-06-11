@@ -18,9 +18,12 @@ GIFS = {
 async def broadcast(bot: Bot, game: GameSession, text: str, reply_markup=None, animation: str = None):
     try:
         if animation:
-            await bot.send_animation(game.chat_id, animation=animation, caption=text, reply_markup=reply_markup)
-        else:
-            await bot.send_message(game.chat_id, text, reply_markup=reply_markup)
+            try:
+                await bot.send_animation(game.chat_id, animation, caption=text, reply_markup=reply_markup)
+                return
+            except Exception as e:
+                print(f"Animation error: {e}. Falling back to text.")
+        await bot.send_message(game.chat_id, text, reply_markup=reply_markup)
     except Exception as e:
         print(f"Broadcast error: {e}")
 
@@ -193,27 +196,32 @@ async def run_voting_phase(bot: Bot, chat_id: int):
     game.state = "VOTING"
     game.day_votes = {} 
     
-    game.day_vote_msg_ids = {} 
-    
     alive = game.get_alive_players()
-    await broadcast(bot, game, "🗳 Голосование началось! Окно голосования появится в ЛС.", animation=GIFS["VOTE"])
+    kb = get_player_selection_kb(alive, "day_vote")
     
     votes_text = ""
     for p in alive:
         votes_text += f"\n👤 {p.username} ➡ ⏳ думает..."
         
-    for p in alive:
-        kb = get_player_selection_kb(alive, "day_vote", p.user_id)
-        try:
-            msg = await bot.send_message(p.user_id, "⚖️ Кого отправим на виселицу?\n" + votes_text, reply_markup=kb)
-            game.day_vote_msg_ids[p.user_id] = msg.message_id
-        except Exception:
-            pass
+    try:
+        msg = await bot.send_message(
+            chat_id, 
+            "🗳 Голосование началось! (У каждого 1 голос, Изменить нельзя)\n⚖️ Кого отправим на виселицу?\n" + votes_text, 
+            reply_markup=kb
+        )
+        game.day_vote_group_msg_id = msg.message_id
+    except Exception:
+        pass
         
     for _ in range(30 * 2): 
         if len(game.day_votes) >= len(alive): break
         await asyncio.sleep(0.5)
         
+    try:
+        if hasattr(game, "day_vote_group_msg_id"):
+            await bot.edit_message_reply_markup(chat_id, game.day_vote_group_msg_id, reply_markup=None)
+    except Exception: pass
+    
     if game.day_votes:
         from collections import Counter
         counts = Counter()
