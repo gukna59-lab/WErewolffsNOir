@@ -2,7 +2,7 @@ import asyncio
 import random
 from aiogram import Bot
 from game_engine import ACTIVE_GAMES, GameSession
-from keyboards import get_player_selection_kb, get_passive_night_kb, get_start_kb, get_witch_action_kb, get_little_girl_kb
+from keyboards import get_player_selection_kb, get_passive_night_kb, get_start_kb, get_witch_action_kb, get_little_girl_kb, get_new_lobby_kb
 from database import update_user_coins, get_user, update_user_stats
 
 GIFS = {
@@ -32,11 +32,12 @@ async def start_game_flow(bot: Bot, chat_id: int):
     if not game: return
     
     next_roles_dict = {}
+    from database import set_next_role
     for p in game.players.values():
         user = get_user(p.user_id)
         if user.get('next_role'):
             next_roles_dict[p.user_id] = user['next_role']
-        update_user_coins(p.user_id, -50)
+            set_next_role(p.user_id, None) # Очищаем после использования
         
     game.assign_roles(next_roles_dict)
     game.state = "DISTRIBUTION"
@@ -79,7 +80,7 @@ async def run_night_phase(bot: Bot, chat_id: int):
                 msg = await bot.send_message(p.user_id, "🐺 Выберите жертву:\n" + votes_text, reply_markup=kb)
                 game.ww_msg_ids[p.user_id] = msg.message_id
             elif p.role_name == "Предсказатель":
-                kb = get_player_selection_kb(alive, "seer_look", p.user_id)
+                kb = get_player_selection_kb(alive, "seer_look", [p.user_id])
                 await bot.send_message(p.user_id, "🔮 Кого проверить?", reply_markup=kb)
             elif p.role_name == "Купидон" and game.day_count == 1:
                 kb = get_player_selection_kb(alive, "cupid_vote")
@@ -134,6 +135,12 @@ async def run_night_phase(bot: Bot, chat_id: int):
              girl_id = k
 
     # Eval WW vote
+    for k, v in game.night_actions.items():
+        if game.players[k].role_name == "Оборотень" and isinstance(v, int):
+            p = game.players[k]
+            if not hasattr(p, "action_history"): p.action_history = []
+            p.action_history.append(v)
+            
     ww_votes = [v for k, v in game.night_actions.items() if game.players[k].role_name == "Оборотень" and isinstance(v, int)]
     target_killed = []
     
@@ -206,9 +213,9 @@ async def run_morning_phase(bot: Bot, chat_id: int):
     
     if await check_and_handle_victory(bot, game): return
     
-    await broadcast(bot, game, "💬 Обсуждение! У вас есть 30 секунд.")
+    await broadcast(bot, game, "💬 Обсуждение! У вас есть 60 секунд.")
     
-    await asyncio.sleep(30)
+    await asyncio.sleep(60)
     asyncio.create_task(run_voting_phase(bot, chat_id))
     
 async def run_voting_phase(bot: Bot, chat_id: int):
@@ -313,4 +320,4 @@ async def end_game(bot: Bot, game: GameSession, reason: str):
     chat_id = game.chat_id
     if chat_id in ACTIVE_GAMES: del ACTIVE_GAMES[chat_id]
     
-    await broadcast(bot, game, "🏁 Игра окончена. Создайте лобби заново.", reply_markup=get_start_kb())
+    await broadcast(bot, game, "🏁 Игра окончена. Создайте лобби заново.", reply_markup=get_new_lobby_kb())

@@ -9,6 +9,11 @@ def get_start_kb(bot_username: str = None) -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="Магазин 🛒", callback_data="shop"))
     return builder.as_markup()
 
+def get_new_lobby_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="🔄 Создать новое лобби", callback_data="create_new_lobby"))
+    return builder.as_markup()
+
 def get_lobby_kb() -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="Присоединиться ✅", callback_data="join_lobby"))
@@ -30,10 +35,11 @@ def get_shop_kb() -> InlineKeyboardMarkup:
     builder.row(InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_menu"))
     return builder.as_markup()
 
-def get_player_selection_kb(players: list, callback_prefix: str, exclude_id: int = None) -> InlineKeyboardMarkup:
+def get_player_selection_kb(players: list, callback_prefix: str, exclude_ids: list = None) -> InlineKeyboardMarkup:
+    if exclude_ids is None: exclude_ids = []
     builder = InlineKeyboardBuilder()
     for player in players:
-        if player.user_id != exclude_id:
+        if player.user_id not in exclude_ids:
             builder.button(text=player.username, callback_data=f"{callback_prefix}:{player.user_id}")
     builder.adjust(2)
     return builder.as_markup()

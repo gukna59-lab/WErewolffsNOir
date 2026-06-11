@@ -74,6 +74,24 @@ async def create_lobby_handler(message: Message, bot: Bot):
     
     asyncio.create_task(_timeout_lobby(chat_id, bot))
 
+@router.callback_query(F.data == "create_new_lobby")
+async def create_new_lobby(callback: CallbackQuery, bot: Bot):
+    chat_id = callback.message.chat.id
+    if chat_id in ACTIVE_GAMES and ACTIVE_GAMES[chat_id].state != "FINISHED":
+        return await callback.answer("Игра здесь уже идёт или лобби создано.", show_alert=True)
+        
+    game = GameSession(chat_id)
+    game.creator_id = callback.from_user.id
+    player = GamePlayer(callback.from_user.id, callback.from_user.full_name)
+    game.players[player.user_id] = player
+    ACTIVE_GAMES[chat_id] = game
+    
+    text = f"🐺 ЛОББИ СОЗДАНО (1/12)\n\nУчастники:\n1. {callback.from_user.full_name}"
+    await callback.message.answer(text, reply_markup=get_lobby_kb())
+    await callback.answer("Новое лобби создано!")
+    
+    asyncio.create_task(_timeout_lobby(chat_id, bot))
+
 @router.callback_query(F.data == "join_lobby")
 async def join_lobby(callback: CallbackQuery):
     chat_id = callback.message.chat.id
@@ -259,6 +277,10 @@ async def ww_vote(callback: CallbackQuery):
     game = get_game_for_user(callback.from_user.id)
     if game and game.state == "NIGHT":
         target_id = int(callback.data.split(":")[1])
+        player = game.players[callback.from_user.id]
+        if hasattr(player, "action_history") and target_id in player.action_history:
+            return await callback.answer("Вы уже выбирали этого игрока в прошлые ночи!", show_alert=True)
+            
         game.night_actions[callback.from_user.id] = target_id
         await update_ww_votes(callback.bot, game)
     await callback.answer()
@@ -268,6 +290,13 @@ async def seer_look(callback: CallbackQuery):
     game = get_game_for_user(callback.from_user.id)
     if game and game.state == "NIGHT":
         target_id = int(callback.data.split(":")[1])
+        player = game.players[callback.from_user.id]
+        if not hasattr(player, "action_history"): player.action_history = []
+        if target_id in player.action_history:
+            return await callback.answer("Ты уже проверял этого игрока в одну из прошлых ночей!", show_alert=True)
+            
+        player.action_history.append(target_id)
+        
         game.night_actions[callback.from_user.id] = "looked"
         role = game.players[target_id].role_name
         name = game.players[target_id].username
@@ -315,7 +344,7 @@ async def witch_action(callback: CallbackQuery):
         await callback.message.edit_text("🧪 Кого исцелить? (Если он не цель оборотней, зелье сгорит)", reply_markup=kb)
     elif action == "poison":
         from keyboards import get_player_selection_kb
-        kb = get_player_selection_kb(alive, "witch_poison_target", callback.from_user.id)
+        kb = get_player_selection_kb(alive, "witch_poison_target", [callback.from_user.id])
         await callback.message.edit_text("☠️ Кого отравить?", reply_markup=kb)
     else:
         game.night_actions[callback.from_user.id] = "skipped"
@@ -367,6 +396,9 @@ async def day_vote(callback: CallbackQuery):
             return await callback.answer("Ты уже проголосовал!", show_alert=True)
             
         target_id = int(callback.data.split(":")[1])
+        if target_id == callback.from_user.id:
+            return await callback.answer("За себя голосовать нельзя!", show_alert=True)
+            
         game.day_votes[callback.from_user.id] = target_id
         await update_day_votes(callback.bot, game)
         await callback.answer("Ваш голос принят!")
