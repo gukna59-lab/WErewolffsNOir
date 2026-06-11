@@ -421,7 +421,7 @@ async def update_day_votes(bot: Bot, game: GameSession):
 async def game_chat_filter(message: Message):
     """
     Удаляет сообщения тех, кто не участвует в игре или уже убит,
-    чтобы они не мешали живым игрокам общаться.
+    а также запрещает общение ночью.
     """
     if message.chat.type == "private":
         return
@@ -430,7 +430,15 @@ async def game_chat_filter(message: Message):
     if chat_id in ACTIVE_GAMES:
         game = ACTIVE_GAMES[chat_id]
         if game.state not in ("LOBBY", "FINISHED"):
-            # Игра в процессе
+            # Если сейчас ночь, никто не должен писать в группу
+            if game.state == "NIGHT":
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+                return
+
+            # Игра в процессе (ДЕНЬ или ГОЛОСОВАНИЕ)
             alive_users = [p.user_id for p in game.get_alive_players()]
             # Удаляем, если игрок не в списке живых (значит либо мертв, либо не участник)
             if message.from_user.id not in alive_users:

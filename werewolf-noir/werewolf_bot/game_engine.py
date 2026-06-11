@@ -76,6 +76,14 @@ class GameSession:
         alive_werewolves = self.get_alive_werewolves()
         tanners_dead = [p for p in self.players.values() if p.role_name == "Таннер" and not p.is_alive]
         
+        # Для мини-игр (2-3 игрока) оборотни побеждают только если убили всех
+        if len(self.players) <= 3:
+            if len(alive_werewolves) == len(alive_players):
+                return "WEREWOLVES_WIN"
+            elif len(alive_werewolves) == 0:
+                return "VILLAGERS_WIN"
+            return None
+            
         # This is basic victory condition
         if len(alive_werewolves) >= len(alive_players) / 2:
             return "WEREWOLVES_WIN"
